@@ -37,8 +37,10 @@ if(WIN32)
 endif()
 
 target_compile_options(SteamClientLoader PRIVATE
-    -Wall
-    -Wextra
-    -O2
-
+  -Oz
+  -s
+  -fno-exceptions
+  -fno-rtti
+  -ffunction-sections -fdata-sections
+  -Wl,--gc-sections
 )

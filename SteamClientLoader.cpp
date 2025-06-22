@@ -105,11 +105,8 @@ bool patch_steam_registry(const std::string& client64_path, const std::string& a
         REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, nullptr, &key, nullptr) != ERROR_SUCCESS) return false;
 
     if (!app_id.empty()) {
-        try {
-            DWORD appid_dword = std::stoul(app_id);
-            RegSetValueExW(key, L"RunningAppID", 0, REG_DWORD, (const BYTE*)&appid_dword, sizeof(DWORD));
-        }
-        catch (...) {}
+     DWORD appid_dword = std::stoul(app_id);
+     RegSetValueExW(key, L"RunningAppID", 0, REG_DWORD, (const BYTE*)&appid_dword, sizeof(DWORD));     
     }
 
     RegSetValueExW(key, L"SteamPath", 0, REG_SZ, (const BYTE*)exe_path_w.c_str(),
@@ -242,19 +239,16 @@ PROXY_FUNC(timeGetDevCaps, MMRESULT, (LPTIMECAPS ptc, UINT cbtc), (ptc, cbtc))
 PROXY_FUNC(timeGetSystemTime, MMRESULT, (LPMMTIME pmmt, UINT cbmmt), (pmmt, cbmmt))
 PROXY_FUNC(timeSetEvent, MMRESULT, (UINT uDelay, UINT uResolution, LPTIMECALLBACK fptc, DWORD_PTR dwUser, UINT fuEvent), (uDelay, uResolution, fptc, dwUser, fuEvent))
 PROXY_FUNC(timeKillEvent, MMRESULT, (UINT uTimerID), (uTimerID))
-
 PROXY_FUNC(PlaySoundA, BOOL, (LPCSTR pszSound, HMODULE hmod, DWORD fdwSound), (pszSound, hmod, fdwSound))
 PROXY_FUNC(PlaySoundW, BOOL, (LPCWSTR pszSound, HMODULE hmod, DWORD fdwSound), (pszSound, hmod, fdwSound))
 PROXY_FUNC(sndPlaySoundA, BOOL, (LPCSTR pszSound, UINT fuSound), (pszSound, fuSound))
 PROXY_FUNC(sndPlaySoundW, BOOL, (LPCWSTR pszSound, UINT fuSound), (pszSound, fuSound))
-
 PROXY_FUNC(mciSendStringA, MCIERROR, (LPCSTR lpstrCommand, LPSTR lpstrReturnString, UINT uReturnLength, HWND hwndCallback), (lpstrCommand, lpstrReturnString, uReturnLength, hwndCallback))
 PROXY_FUNC(mciSendStringW, MCIERROR, (LPCWSTR lpstrCommand, LPWSTR lpstrReturnString, UINT uReturnLength, HWND hwndCallback), (lpstrCommand, lpstrReturnString, uReturnLength, hwndCallback))
 PROXY_FUNC(mciSendCommandA, MCIERROR, (MCIDEVICEID IDDevice, UINT uMsg, DWORD_PTR fdwCommand, DWORD_PTR dwParam), (IDDevice, uMsg, fdwCommand, dwParam))
 PROXY_FUNC(mciSendCommandW, MCIERROR, (MCIDEVICEID IDDevice, UINT uMsg, DWORD_PTR fdwCommand, DWORD_PTR dwParam), (IDDevice, uMsg, fdwCommand, dwParam))
 PROXY_FUNC(mciGetErrorStringA, BOOL, (MCIERROR mcierr, LPSTR pszText, UINT cchText), (mcierr, pszText, cchText))
 PROXY_FUNC(mciGetErrorStringW, BOOL, (MCIERROR mcierr, LPWSTR pszText, UINT cchText), (mcierr, pszText, cchText))
-
 PROXY_FUNC(waveOutOpen, MMRESULT, (LPHWAVEOUT phwo, UINT uDeviceID, LPCWAVEFORMATEX pwfx, DWORD_PTR dwCallback, DWORD_PTR dwInstance, DWORD fdwOpen), (phwo, uDeviceID, pwfx, dwCallback, dwInstance, fdwOpen))PROXY_FUNC(waveOutClose, MMRESULT, (HWAVEOUT hwo), (hwo))
 PROXY_FUNC(waveOutPrepareHeader, MMRESULT, (HWAVEOUT hwo, LPWAVEHDR pwh, UINT cbwh), (hwo, pwh, cbwh))
 PROXY_FUNC(waveOutUnprepareHeader, MMRESULT, (HWAVEOUT hwo, LPWAVEHDR pwh, UINT cbwh), (hwo, pwh, cbwh))
@@ -277,7 +271,6 @@ PROXY_FUNC(waveOutGetVolume, MMRESULT, (HWAVEOUT hwo, LPDWORD pdwVolume), (hwo, 
 PROXY_FUNC(waveOutSetVolume, MMRESULT, (HWAVEOUT hwo, DWORD dwVolume), (hwo, dwVolume))
 PROXY_FUNC(waveOutGetErrorTextA, MMRESULT, (MMRESULT mmrError, LPSTR pszText, UINT cchText), (mmrError, pszText, cchText))
 PROXY_FUNC(waveOutGetErrorTextW, MMRESULT, (MMRESULT mmrError, LPWSTR pszText, UINT cchText), (mmrError, pszText, cchText))
-
 PROXY_FUNC(waveInOpen, MMRESULT, (LPHWAVEIN phwi, UINT uDeviceID, LPCWAVEFORMATEX pwfx, DWORD_PTR dwCallback, DWORD_PTR dwInstance, DWORD fdwOpen), (phwi, uDeviceID, pwfx, dwCallback, dwInstance, fdwOpen))PROXY_FUNC(waveInPrepareHeader, MMRESULT, (HWAVEIN hwi, LPWAVEHDR pwh, UINT cbwh), (hwi, pwh, cbwh))
 PROXY_FUNC(waveInUnprepareHeader, MMRESULT, (HWAVEIN hwi, LPWAVEHDR pwh, UINT cbwh), (hwi, pwh, cbwh))
 PROXY_FUNC(waveInAddBuffer, MMRESULT, (HWAVEIN hwi, LPWAVEHDR pwh, UINT cbwh), (hwi, pwh, cbwh))
@@ -292,7 +285,6 @@ PROXY_FUNC(waveInGetDevCapsA, MMRESULT, (UINT_PTR uDeviceID, LPWAVEINCAPSA pwic,
 PROXY_FUNC(waveInGetDevCapsW, MMRESULT, (UINT_PTR uDeviceID, LPWAVEINCAPSW pwic, UINT cbwic), (uDeviceID, pwic, cbwic))
 PROXY_FUNC(waveInGetErrorTextA, MMRESULT, (MMRESULT mmrError, LPSTR pszText, UINT cchText), (mmrError, pszText, cchText))
 PROXY_FUNC(waveInGetErrorTextW, MMRESULT, (MMRESULT mmrError, LPWSTR pszText, UINT cchText), (mmrError, pszText, cchText))
-
 PROXY_FUNC(mixerOpen, MMRESULT, (LPHMIXER phmx, UINT uMxId, DWORD_PTR dwCallback, DWORD_PTR dwInstance, DWORD fdwOpen), (phmx, uMxId, dwCallback, dwInstance, fdwOpen))
 PROXY_FUNC(mixerClose, MMRESULT, (HMIXER hmx), (hmx))
 PROXY_FUNC(mixerGetLineInfoA, MMRESULT, (HMIXEROBJ hmxobj, LPMIXERLINEA pmxl, DWORD fdwInfo), (hmxobj, pmxl, fdwInfo))
@@ -307,14 +299,12 @@ PROXY_FUNC(mixerGetNumDevs, UINT, (void), ())
 PROXY_FUNC(mixerGetDevCapsA, MMRESULT, (UINT_PTR uMxId, LPMIXERCAPSA pmxcaps, UINT cbmxcaps), (uMxId, pmxcaps, cbmxcaps))
 PROXY_FUNC(mixerGetDevCapsW, MMRESULT, (UINT_PTR uMxId, LPMIXERCAPSW pmxcaps, UINT cbmxcaps), (uMxId, pmxcaps, cbmxcaps))
 PROXY_FUNC(mixerMessage, DWORD, (HMIXER hmx, UINT uMessage, DWORD_PTR dwParam1, DWORD_PTR dwParam2), (hmx, uMessage, dwParam1, dwParam2))
-
 PROXY_FUNC(auxGetNumDevs, UINT, (void), ())
 PROXY_FUNC(auxGetDevCapsA, MMRESULT, (UINT_PTR uDeviceID, LPAUXCAPSA pac, UINT cbac), (uDeviceID, pac, cbac))
 PROXY_FUNC(auxGetDevCapsW, MMRESULT, (UINT_PTR uDeviceID, LPAUXCAPSW pac, UINT cbac), (uDeviceID, pac, cbac))
 PROXY_FUNC(auxSetVolume, MMRESULT, (UINT uDeviceID, DWORD dwVolume), (uDeviceID, dwVolume))
 PROXY_FUNC(auxGetVolume, MMRESULT, (UINT uDeviceID, LPDWORD pdwVolume), (uDeviceID, pdwVolume))
 PROXY_FUNC(auxOutMessage, MMRESULT, (UINT uDeviceID, UINT uMessage, DWORD_PTR dw1, DWORD_PTR dw2), (uDeviceID, uMessage, dw1, dw2))
-
 PROXY_FUNC(joyGetNumDevs, UINT, (void), ())
 PROXY_FUNC(joyGetDevCapsA, MMRESULT, (UINT_PTR uJoyID, LPJOYCAPSA pjc, UINT cbjc), (uJoyID, pjc, cbjc))
 PROXY_FUNC(joyGetDevCapsW, MMRESULT, (UINT_PTR uJoyID, LPJOYCAPSW pjc, UINT cbjc), (uJoyID, pjc, cbjc))
