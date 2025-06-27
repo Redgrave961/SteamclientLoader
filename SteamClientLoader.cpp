@@ -11,6 +11,7 @@ static bool g_initialized = false;
 static bool g_steam_loaded = false;
 static bool g_registry_restored = false;
 static bool g_is_version_dll = false;
+static bool g_overlay_loaded = false;
 
 struct RegBackup {
     bool valid = false;
@@ -149,6 +150,8 @@ void perform_steam_injection() {
     if (app_id.empty()) return;
 
     std::string client64_path = get_exe_dir() + "steamclient64.dll";
+    std::string overlay_path = get_exe_dir() + "GameOverlayRenderer64.dll";
+
     if (GetFileAttributesA(client64_path.c_str()) == INVALID_FILE_ATTRIBUTES) return;
     if (GetModuleHandleA("steamclient64.dll")) {
         g_steam_loaded = true;
@@ -162,6 +165,12 @@ void perform_steam_injection() {
     for (auto& [name, value] : env_vars) SetEnvironmentVariableA(name, value);
 
     if (!patch_steam_registry(client64_path, app_id)) return;
+
+    // Load GameOverlayRenderer64.dll first if it exists
+    if (!g_overlay_loaded && GetFileAttributesA(overlay_path.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        LoadLibraryA(overlay_path.c_str());
+        g_overlay_loaded = true;
+    }
 
     HMODULE steam_client = LoadLibraryA(client64_path.c_str());
     if (steam_client) {
