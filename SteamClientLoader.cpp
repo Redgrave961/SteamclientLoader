@@ -2,16 +2,14 @@
 #include <mmsystem.h>
 #include <string>
 #include <fstream>
-#include <mutex>
 #include <algorithm>
 
-HMODULE g_original_dll = nullptr;
-std::mutex g_load_mutex{};
 static bool g_initialized = false;
 static bool g_steam_loaded = false;
 static bool g_registry_restored = false;
 static bool g_is_version_dll = false;
 static bool g_overlay_loaded = false;
+static HANDLE g_steam_thread = nullptr;
 
 struct RegBackup {
     bool valid = false;
@@ -23,12 +21,12 @@ struct RegBackup {
 constexpr static const wchar_t STEAM_UNIVERSE[] = L"Public";
 const static DWORD UserId = 0x03100004;
 
-std::string get_exe_dir() {
-    char buffer[MAX_PATH];
-    GetModuleFileNameA(nullptr, buffer, MAX_PATH);
-    std::string path = buffer;
-    size_t pos = path.find_last_of("\\/");
-    return (pos != std::string::npos) ? path.substr(0, pos + 1) : "";
+std::wstring get_current_dir_w() {
+    wchar_t buffer[MAX_PATH];
+    GetCurrentDirectoryW(MAX_PATH, buffer);
+    std::wstring path = buffer;
+    if (!path.empty() && path.back() == L'\\') path.pop_back();
+    return path;
 }
 
 std::wstring to_wide(const std::string& str) {
@@ -39,21 +37,8 @@ std::wstring to_wide(const std::string& str) {
     return result;
 }
 
-std::string get_dll_dir() {
-    HMODULE hModule = nullptr;
-    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-        (LPCSTR)&get_dll_dir, &hModule)) {
-        char buffer[MAX_PATH];
-        GetModuleFileNameA(hModule, buffer, MAX_PATH);
-        std::string path = buffer;
-        size_t pos = path.find_last_of("\\/");
-        return (pos != std::string::npos) ? path.substr(0, pos + 1) : "";
-    }
-    return "";
-}
-
 std::string read_app_id() {
-    std::ifstream file(get_dll_dir() + "steam_settings\\steam_appid.txt");
+    std::ifstream file("steam_settings\\steam_appid.txt");
     std::string appid;
     if (file.is_open()) {
         std::getline(file, appid);
@@ -64,9 +49,7 @@ std::string read_app_id() {
 }
 
 bool patch_steam_registry(const std::string& client64_path, const std::string& app_id) {
-    auto exe_path_w = to_wide(get_exe_dir());
-    if (!exe_path_w.empty() && exe_path_w.back() == L'\\') exe_path_w.pop_back();
-
+    auto exe_path_w = get_current_dir_w();
     auto client64_path_w = to_wide(client64_path);
     DWORD pid = GetCurrentProcessId();
 
@@ -143,19 +126,18 @@ void cleanup_registry() {
     g_registry_restored = true;
 }
 
-void perform_steam_injection() {
-    if (g_steam_loaded) return;
-
+DWORD WINAPI SteamInjectionThreadProc(LPVOID lpParam) {
     std::string app_id = read_app_id();
-    if (app_id.empty()) return;
+    if (app_id.empty()) return 0;
 
-    std::string client64_path = get_exe_dir() + "steamclient64.dll";
-    std::string overlay_path = get_exe_dir() + "GameOverlayRenderer64.dll";
+    // Simplified path handling
+    std::string client64_path = "steamclient64.dll";
+    std::string overlay_path = "GameOverlayRenderer64.dll";
 
-    if (GetFileAttributesA(client64_path.c_str()) == INVALID_FILE_ATTRIBUTES) return;
+    if (GetFileAttributesA(client64_path.c_str()) == INVALID_FILE_ATTRIBUTES) return 0;
     if (GetModuleHandleA("steamclient64.dll")) {
         g_steam_loaded = true;
-        return;
+        return 0;
     }
 
     const char* env_vars[][2] = {
@@ -164,7 +146,7 @@ void perform_steam_injection() {
     };
     for (auto& [name, value] : env_vars) SetEnvironmentVariableA(name, value);
 
-    if (!patch_steam_registry(client64_path, app_id)) return;
+    if (!patch_steam_registry(client64_path, app_id)) return 0;
 
     // Load GameOverlayRenderer64.dll first if it exists
     if (!g_overlay_loaded && GetFileAttributesA(overlay_path.c_str()) != INVALID_FILE_ATTRIBUTES) {
@@ -175,13 +157,14 @@ void perform_steam_injection() {
     HMODULE steam_client = LoadLibraryA(client64_path.c_str());
     if (steam_client) {
         g_steam_loaded = true;
-
-        CreateThread(nullptr, 0, [](LPVOID) -> DWORD {
-            Sleep(7000);
-            cleanup_registry();
-            return 0;
-            }, nullptr, 0, nullptr);
     }
+    
+    return 0;
+}
+
+void perform_steam_injection() {
+    if (g_steam_loaded) return;
+    g_steam_thread = CreateThread(nullptr, 0, SteamInjectionThreadProc, nullptr, 0, nullptr);
 }
 
 // Detect which DLL it's supposed to be based on filename
@@ -206,41 +189,59 @@ bool detect_dll_type() {
     return false;
 }
 
-bool load_original_dll() {
-    std::lock_guard<std::mutex> lock(g_load_mutex);
-    if (g_original_dll) return true;
-
-    wchar_t buffer[MAX_PATH];
-    if (GetSystemDirectoryW(buffer, MAX_PATH) == 0) return false;
-
-    std::wstring path = std::wstring(buffer) + (g_is_version_dll ? L"\\version.dll" : L"\\winmm.dll");
-    g_original_dll = LoadLibraryW(path.c_str());
-    return g_original_dll != nullptr;
+HMODULE get_original_dll(bool free_library = false) {
+    static HMODULE original_dll = nullptr;
+    
+    if (free_library) {
+        if (original_dll) {
+            FreeLibrary(original_dll);
+            original_dll = nullptr;
+        }
+        return nullptr;
+    }
+    
+    if (!original_dll) {
+        wchar_t buffer[MAX_PATH];
+        if (GetSystemDirectoryW(buffer, MAX_PATH) != 0) {
+            std::wstring path = std::wstring(buffer) + (g_is_version_dll ? L"\\version.dll" : L"\\winmm.dll");
+            original_dll = LoadLibraryW(path.c_str());
+        }
+    }
+    
+    return original_dll;
 }
 
 template<typename T>
 T get_proc(const char* name) {
-    return g_original_dll ? reinterpret_cast<T>(GetProcAddress(g_original_dll, name)) : nullptr;
+    HMODULE dll = get_original_dll();
+    return dll ? reinterpret_cast<T>(GetProcAddress(dll, name)) : nullptr;
 }
 
+// Modified macro for functions that are already declared in system headers (version.dll functions)
+#define PROXY_FUNC_VERSION(func, ret, params, args) \
+    extern "C" __declspec(dllexport) ret WINAPI func params { \
+        auto f = get_proc<ret(WINAPI*)params>(#func); \
+        return f ? f args : (ret)0; \
+    }
+
+// Original macro for functions that need dllexport (winmm.dll functions)
 #define PROXY_FUNC(func, ret, params, args) \
     extern "C" __declspec(dllexport) ret WINAPI func params { \
-        load_original_dll(); \
         auto f = get_proc<ret(WINAPI*)params>(#func); \
         return f ? f args : (ret)0; \
     }
 
 // Version.dll functions
-PROXY_FUNC(GetFileVersionInfoA, BOOL, (LPCSTR a, DWORD b, DWORD c, LPVOID d), (a, b, c, d))
-PROXY_FUNC(GetFileVersionInfoW, BOOL, (LPCWSTR a, DWORD b, DWORD c, LPVOID d), (a, b, c, d))
-PROXY_FUNC(GetFileVersionInfoSizeA, DWORD, (LPCSTR a, LPDWORD b), (a, b))
-PROXY_FUNC(GetFileVersionInfoSizeW, DWORD, (LPCWSTR a, LPDWORD b), (a, b))
-PROXY_FUNC(VerQueryValueA, BOOL, (LPCVOID a, LPCSTR b, LPVOID* c, PUINT d), (a, b, c, d))
-PROXY_FUNC(VerQueryValueW, BOOL, (LPCVOID a, LPCWSTR b, LPVOID* c, PUINT d), (a, b, c, d))
-PROXY_FUNC(GetFileVersionInfoExW, BOOL, (DWORD a, LPCWSTR b, DWORD c, DWORD d, LPVOID e), (a, b, c, d, e))
-PROXY_FUNC(GetFileVersionInfoSizeExW, DWORD, (DWORD a, LPCWSTR b, LPDWORD c), (a, b, c))
+PROXY_FUNC_VERSION(GetFileVersionInfoA, BOOL, (LPCSTR a, DWORD b, DWORD c, LPVOID d), (a, b, c, d))
+PROXY_FUNC_VERSION(GetFileVersionInfoW, BOOL, (LPCWSTR a, DWORD b, DWORD c, LPVOID d), (a, b, c, d))
+PROXY_FUNC_VERSION(GetFileVersionInfoSizeA, DWORD, (LPCSTR a, LPDWORD b), (a, b))
+PROXY_FUNC_VERSION(GetFileVersionInfoSizeW, DWORD, (LPCWSTR a, LPDWORD b), (a, b))
+PROXY_FUNC_VERSION(VerQueryValueA, BOOL, (LPCVOID a, LPCSTR b, LPVOID* c, PUINT d), (a, b, c, d))
+PROXY_FUNC_VERSION(VerQueryValueW, BOOL, (LPCVOID a, LPCWSTR b, LPVOID* c, PUINT d), (a, b, c, d))
+PROXY_FUNC_VERSION(GetFileVersionInfoExW, BOOL, (DWORD a, LPCWSTR b, DWORD c, DWORD d, LPVOID e), (a, b, c, d, e))
+PROXY_FUNC_VERSION(GetFileVersionInfoSizeExW, DWORD, (DWORD a, LPCWSTR b, LPDWORD c), (a, b, c))
 
-// Winmm.dll functions
+// Winmm.dll functions 
 PROXY_FUNC(timeBeginPeriod, MMRESULT, (UINT uPeriod), (uPeriod))
 PROXY_FUNC(timeEndPeriod, MMRESULT, (UINT uPeriod), (uPeriod))
 PROXY_FUNC(timeGetTime, DWORD, (void), ())
@@ -258,7 +259,8 @@ PROXY_FUNC(mciSendCommandA, MCIERROR, (MCIDEVICEID IDDevice, UINT uMsg, DWORD_PT
 PROXY_FUNC(mciSendCommandW, MCIERROR, (MCIDEVICEID IDDevice, UINT uMsg, DWORD_PTR fdwCommand, DWORD_PTR dwParam), (IDDevice, uMsg, fdwCommand, dwParam))
 PROXY_FUNC(mciGetErrorStringA, BOOL, (MCIERROR mcierr, LPSTR pszText, UINT cchText), (mcierr, pszText, cchText))
 PROXY_FUNC(mciGetErrorStringW, BOOL, (MCIERROR mcierr, LPWSTR pszText, UINT cchText), (mcierr, pszText, cchText))
-PROXY_FUNC(waveOutOpen, MMRESULT, (LPHWAVEOUT phwo, UINT uDeviceID, LPCWAVEFORMATEX pwfx, DWORD_PTR dwCallback, DWORD_PTR dwInstance, DWORD fdwOpen), (phwo, uDeviceID, pwfx, dwCallback, dwInstance, fdwOpen))PROXY_FUNC(waveOutClose, MMRESULT, (HWAVEOUT hwo), (hwo))
+PROXY_FUNC(waveOutOpen, MMRESULT, (LPHWAVEOUT phwo, UINT uDeviceID, LPCWAVEFORMATEX pwfx, DWORD_PTR dwCallback, DWORD_PTR dwInstance, DWORD fdwOpen), (phwo, uDeviceID, pwfx, dwCallback, dwInstance, fdwOpen))
+PROXY_FUNC(waveOutClose, MMRESULT, (HWAVEOUT hwo), (hwo))
 PROXY_FUNC(waveOutPrepareHeader, MMRESULT, (HWAVEOUT hwo, LPWAVEHDR pwh, UINT cbwh), (hwo, pwh, cbwh))
 PROXY_FUNC(waveOutUnprepareHeader, MMRESULT, (HWAVEOUT hwo, LPWAVEHDR pwh, UINT cbwh), (hwo, pwh, cbwh))
 PROXY_FUNC(waveOutWrite, MMRESULT, (HWAVEOUT hwo, LPWAVEHDR pwh, UINT cbwh), (hwo, pwh, cbwh))
@@ -280,7 +282,8 @@ PROXY_FUNC(waveOutGetVolume, MMRESULT, (HWAVEOUT hwo, LPDWORD pdwVolume), (hwo, 
 PROXY_FUNC(waveOutSetVolume, MMRESULT, (HWAVEOUT hwo, DWORD dwVolume), (hwo, dwVolume))
 PROXY_FUNC(waveOutGetErrorTextA, MMRESULT, (MMRESULT mmrError, LPSTR pszText, UINT cchText), (mmrError, pszText, cchText))
 PROXY_FUNC(waveOutGetErrorTextW, MMRESULT, (MMRESULT mmrError, LPWSTR pszText, UINT cchText), (mmrError, pszText, cchText))
-PROXY_FUNC(waveInOpen, MMRESULT, (LPHWAVEIN phwi, UINT uDeviceID, LPCWAVEFORMATEX pwfx, DWORD_PTR dwCallback, DWORD_PTR dwInstance, DWORD fdwOpen), (phwi, uDeviceID, pwfx, dwCallback, dwInstance, fdwOpen))PROXY_FUNC(waveInPrepareHeader, MMRESULT, (HWAVEIN hwi, LPWAVEHDR pwh, UINT cbwh), (hwi, pwh, cbwh))
+PROXY_FUNC(waveInOpen, MMRESULT, (LPHWAVEIN phwi, UINT uDeviceID, LPCWAVEFORMATEX pwfx, DWORD_PTR dwCallback, DWORD_PTR dwInstance, DWORD fdwOpen), (phwi, uDeviceID, pwfx, dwCallback, dwInstance, fdwOpen))
+PROXY_FUNC(waveInPrepareHeader, MMRESULT, (HWAVEIN hwi, LPWAVEHDR pwh, UINT cbwh), (hwi, pwh, cbwh))
 PROXY_FUNC(waveInUnprepareHeader, MMRESULT, (HWAVEIN hwi, LPWAVEHDR pwh, UINT cbwh), (hwi, pwh, cbwh))
 PROXY_FUNC(waveInAddBuffer, MMRESULT, (HWAVEIN hwi, LPWAVEHDR pwh, UINT cbwh), (hwi, pwh, cbwh))
 PROXY_FUNC(waveInStart, MMRESULT, (HWAVEIN hwi), (hwi))
@@ -324,26 +327,29 @@ PROXY_FUNC(joySetThreshold, MMRESULT, (UINT uJoyID, UINT uThreshold), (uJoyID, u
 PROXY_FUNC(joyReleaseCapture, MMRESULT, (UINT uJoyID), (uJoyID))
 PROXY_FUNC(joySetCapture, MMRESULT, (HWND hwnd, UINT uJoyID, UINT uPeriod, BOOL fChanged), (hwnd, uJoyID, uPeriod, fChanged))
 
-
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
     switch (reason) {
     case DLL_PROCESS_ATTACH:
         if (!g_initialized) {
             g_initialized = true;
             g_is_version_dll = detect_dll_type();
-            CreateThread(nullptr, 0, [](LPVOID) -> DWORD {
-                perform_steam_injection();
-                return 0;
-                }, nullptr, 0, nullptr);
+            perform_steam_injection();
         }
         break;
 
     case DLL_PROCESS_DETACH:
-        cleanup_registry();
-        if (g_original_dll) {
-            FreeLibrary(g_original_dll);
-            g_original_dll = nullptr;
+        // Wait for the steam thread to complete with a timeout
+        if (g_steam_thread) {
+            WaitForSingleObject(g_steam_thread, 2000); // Wait up to 2 seconds
+            CloseHandle(g_steam_thread);
+            g_steam_thread = nullptr;
         }
+        
+        // Clean up registry directly
+        cleanup_registry();
+        
+        // Free the original DLL
+        get_original_dll(true);
         break;
     }
     return TRUE;
