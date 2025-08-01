@@ -283,6 +283,7 @@ PROXY_FUNC(waveOutSetVolume, MMRESULT, (HWAVEOUT hwo, DWORD dwVolume), (hwo, dwV
 PROXY_FUNC(waveOutGetErrorTextA, MMRESULT, (MMRESULT mmrError, LPSTR pszText, UINT cchText), (mmrError, pszText, cchText))
 PROXY_FUNC(waveOutGetErrorTextW, MMRESULT, (MMRESULT mmrError, LPWSTR pszText, UINT cchText), (mmrError, pszText, cchText))
 PROXY_FUNC(waveInOpen, MMRESULT, (LPHWAVEIN phwi, UINT uDeviceID, LPCWAVEFORMATEX pwfx, DWORD_PTR dwCallback, DWORD_PTR dwInstance, DWORD fdwOpen), (phwi, uDeviceID, pwfx, dwCallback, dwInstance, fdwOpen))
+PROXY_FUNC(waveInClose, MMRESULT, (HWAVEIN hwi), (hwi))
 PROXY_FUNC(waveInPrepareHeader, MMRESULT, (HWAVEIN hwi, LPWAVEHDR pwh, UINT cbwh), (hwi, pwh, cbwh))
 PROXY_FUNC(waveInUnprepareHeader, MMRESULT, (HWAVEIN hwi, LPWAVEHDR pwh, UINT cbwh), (hwi, pwh, cbwh))
 PROXY_FUNC(waveInAddBuffer, MMRESULT, (HWAVEIN hwi, LPWAVEHDR pwh, UINT cbwh), (hwi, pwh, cbwh))
